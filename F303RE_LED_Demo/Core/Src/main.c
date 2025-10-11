@@ -149,7 +149,7 @@ int main(void)
 	// I2C turn LED0 ON
 //	pca_status = PCA9685_PWM_write(&hpca, 0, 2024);
 //	pca_status = PCA9685_LED0_on(&hpca);
-    pca_status = PCA9685_LEDX_on(&hpca, 15);
+//    pca_status = PCA9685_LEDX_on(&hpca, 15);
 //	uint8_t data_on = 0x10;   // bit 4 = full ON
 //	uint8_t data_off = 0x00; //set bit 4 to 0;
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
@@ -157,34 +157,24 @@ int main(void)
 
 
 	// SPI
-
-	SPI_data_out = 0b11110000;
-
 	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
-	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi3, &SPI_data_out, 1, 1000);
-	if(status == HAL_OK)
-	{
-		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-	}
-	HAL_Delay(500);
+	if(SPI_data_in == 0b0001111)
+	    pca_status = PCA9685_LEDX_on(&hpca, 15);
+	else if(SPI_data_in == 0b11110000)
+	    pca_status = PCA9685_LEDX_off(&hpca, 15);
+//	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi3, &SPI_data_out, 1, 1000);
+//	if(status == HAL_OK)
+//	{
+//		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+//	}
+//	HAL_Delay(500);
 
 	// I2C turn LED0 OFF
 //	pca_status = PCA9685_PWM_write(&hpca, 0, 4095);
 //	pca_status = PCA9685_LED0_off(&hpca);
-    pca_status = PCA9685_LEDX_off(&hpca, 15);
+//  pca_status = PCA9685_LEDX_off(&hpca, 15);
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_off, 1, HAL_MAX_DELAY);
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_on, 1, HAL_MAX_DELAY);
-	HAL_Delay(500);
-	for(uint16_t i = 0; i < 4096; i++)
-	{
-		pca_status = PCA9685_PWM_write(&hpca, 15, i);
-		HAL_Delay(2);
-	}
-	for(uint16_t i = 4095; i > 0; i--)
-	{
-		pca_status = PCA9685_PWM_write(&hpca, 15, i);
-		HAL_Delay(2);
-	}
   }
   /* USER CODE END 3 */
 }

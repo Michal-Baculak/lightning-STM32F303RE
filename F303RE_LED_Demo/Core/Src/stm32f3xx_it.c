@@ -238,7 +238,7 @@ void SPI2_IRQHandler(void)
   /* USER CODE END SPI2_IRQn 0 */
   HAL_SPI_IRQHandler(&hspi2);
   /* USER CODE BEGIN SPI2_IRQn 1 */
-
+  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
   /* USER CODE END SPI2_IRQn 1 */
 }
 
