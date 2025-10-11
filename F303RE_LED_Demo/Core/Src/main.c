@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include "PCA9685.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -79,6 +79,8 @@ uint8_t data_in = 0;
 
 HAL_StatusTypeDef i2c_status;
 
+hPCA9685 hpca;
+
 /* USER CODE END 0 */
 
 /**
@@ -116,20 +118,21 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
-  I2C_Scan(&hi2c1);
+//  I2C_Scan(&hi2c1);
+//
+//  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
+//  i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, PCA9685_MODE1, 1, &mode1, 1, HAL_MAX_DELAY);
+//  HAL_Delay(10);
+//
+//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x00, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
+//
+//  // read ALLCALLADR register
+//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x05, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
+//
+//  // read SUBADR1 register
+//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x02, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
 
-  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
-  i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, PCA9685_MODE1, 1, &mode1, 1, HAL_MAX_DELAY);
-  HAL_Delay(10);
-
-  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x00, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
-
-  // read ALLCALLADR register
-  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x05, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
-
-  // read SUBADR1 register
-  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x02, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
-
+  uint8_t pca_status = PCA9685_PWM_init(&hpca, &hi2c1, 0x40);
 
   /* USER CODE END 2 */
   /* Infinite loop */
@@ -144,11 +147,13 @@ int main(void)
 
 
 	// I2C turn LED0 ON
-
-	uint8_t data_on = 0x10;   // bit 4 = full ON
-	uint8_t data_off = 0x00; //set bit 4 to 0;
-	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
-	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
+//	pca_status = PCA9685_PWM_write(&hpca, 0, 2024);
+//	pca_status = PCA9685_LED0_on(&hpca);
+    pca_status = PCA9685_LEDX_on(&hpca, 15);
+//	uint8_t data_on = 0x10;   // bit 4 = full ON
+//	uint8_t data_off = 0x00; //set bit 4 to 0;
+//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
+//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
 
 
 	// SPI
@@ -164,9 +169,22 @@ int main(void)
 	HAL_Delay(500);
 
 	// I2C turn LED0 OFF
-	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_off, 1, HAL_MAX_DELAY);
-	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_on, 1, HAL_MAX_DELAY);
+//	pca_status = PCA9685_PWM_write(&hpca, 0, 4095);
+//	pca_status = PCA9685_LED0_off(&hpca);
+    pca_status = PCA9685_LEDX_off(&hpca, 15);
+//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_off, 1, HAL_MAX_DELAY);
+//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_on, 1, HAL_MAX_DELAY);
 	HAL_Delay(500);
+	for(uint16_t i = 0; i < 4096; i++)
+	{
+		pca_status = PCA9685_PWM_write(&hpca, 15, i);
+		HAL_Delay(2);
+	}
+	for(uint16_t i = 4095; i > 0; i--)
+	{
+		pca_status = PCA9685_PWM_write(&hpca, 15, i);
+		HAL_Delay(2);
+	}
   }
   /* USER CODE END 3 */
 }
