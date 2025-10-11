@@ -31,7 +31,14 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define PCA9685_MODE1         0x00
+#define PCA9685_ALL_LED_ON_L  0xFA
+#define PCA9685_ALL_LED_ON_H  0xFB
+#define PCA9685_ALL_LED_OFF_L 0xFC
+#define PCA9685_ALL_LED_OFF_H 0xFD
 
+#define LED0_ON_H 0x07
+#define LED0_OFF_H 0x09
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,6 +47,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 SPI_HandleTypeDef hspi2;
 SPI_HandleTypeDef hspi3;
 
@@ -55,14 +64,21 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-
+void I2C_Scan(I2C_HandleTypeDef *hi2c);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 uint8_t SPI_data_out;
 uint8_t SPI_data_in;
+uint8_t I2C_TX_Buffer[];
+uint8_t I2C_PWM_chip_address = (0x40<<1);
+uint8_t data_in = 0;
+
+HAL_StatusTypeDef i2c_status;
+
 /* USER CODE END 0 */
 
 /**
@@ -97,9 +113,25 @@ int main(void)
   MX_USART2_UART_Init();
   MX_SPI2_Init();
   MX_SPI3_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  /* USER CODE END 2 */
 
+  I2C_Scan(&hi2c1);
+
+  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
+  i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, PCA9685_MODE1, 1, &mode1, 1, HAL_MAX_DELAY);
+  HAL_Delay(10);
+
+  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x00, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
+
+  // read ALLCALLADR register
+  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x05, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
+
+  // read SUBADR1 register
+  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x02, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
+
+
+  /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -111,6 +143,16 @@ int main(void)
 //	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, pinState);
 
 
+	// I2C turn LED0 ON
+
+	uint8_t data_on = 0x10;   // bit 4 = full ON
+	uint8_t data_off = 0x00; //set bit 4 to 0;
+	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
+	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
+
+
+	// SPI
+
 	SPI_data_out = 0b11110000;
 
 	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
@@ -121,6 +163,10 @@ int main(void)
 	}
 	HAL_Delay(500);
 
+	// I2C turn LED0 OFF
+	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_off, 1, HAL_MAX_DELAY);
+	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_on, 1, HAL_MAX_DELAY);
+	HAL_Delay(500);
   }
   /* USER CODE END 3 */
 }
@@ -163,12 +209,61 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_I2C1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x00201D2B;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -325,7 +420,17 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void I2C_Scan(I2C_HandleTypeDef *hi2c)
+{
+    printf("Scanning I2C bus...\r\n");
+    for (uint8_t addr = 1; addr < 127; addr++)
+    {
+        if (HAL_I2C_IsDeviceReady(hi2c, addr << 1, 2, 10) == HAL_OK)
+        {
+            printf("  Found device at 0x%02X\r\n", addr);
+        }
+    }
+}
 /* USER CODE END 4 */
 
 /**
