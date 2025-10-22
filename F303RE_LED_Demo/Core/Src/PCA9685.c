@@ -74,6 +74,7 @@ uint8_t PCA9685_LED0_on(hPCA9685 *hpca)
 	}
 	return 0x00;
 }
+
 uint8_t PCA9685_LEDX_off(hPCA9685 *hpca, uint8_t pin)
 {
 	if(pin >15)
@@ -118,4 +119,12 @@ uint8_t PCA9685_LEDX_on(hPCA9685 *hpca, uint8_t pin)
 		return 0x01;
 	}
 	return 0x00;
+}
+
+uint8_t PCA9685_digital_write(hPCA9685 *hpca, uint8_t pin, uint8_t val)
+{
+	if(val)
+		return PCA9685_LEDX_on(hpca, pin);
+	else
+		return PCA9685_LEDX_off(hpca, pin);
 }

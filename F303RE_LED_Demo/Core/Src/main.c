@@ -80,6 +80,257 @@ uint8_t data_in = 0;
 HAL_StatusTypeDef i2c_status;
 
 hPCA9685 hpca;
+LED_ConfigTypeDef LED_config;
+
+// we consider max 5 RGB LEDs and max 15 LEDs overall
+float LED_Hue[5] = {0,0,0,0,0};
+float LED_Saturation[5] = {0,0,0,0,0};
+uint16_t LED_Intensity[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+LED_RGBTypeDef RGB_from_ESP;
+LED_HSVTypeDef HSV_from_RGB_from_ESP;
+LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
+
+LED_HSVTypeDef RGB_8bit_to_HSV(uint8_t r, uint8_t g, uint8_t b)
+{
+	LED_HSVTypeDef hsv;
+	hsv.h = hsv.s = hsv.v = -0.1f;
+	uint8_t max_rgb = r;
+	uint8_t which_max = 1; // 1 - RED, 2 - GREEN, 3 - BLUE
+	if(r >= g && r >= b)
+	{
+		max_rgb = r;
+		which_max = 1;
+	}
+	if(g >= b && g >= r)
+	{
+		max_rgb = g;
+		which_max = 2;
+	}
+	if(b >= r && b >= g)
+	{
+		max_rgb = b;
+		which_max = 3;
+	}
+
+	uint8_t min_rgb = 0;
+	if(r <= g && r <= b)
+		min_rgb = r;
+	if(g <= r && g <= b)
+		min_rgb = g;
+	if(b <= r && b <= g)
+		min_rgb = b;
+
+	// due to using 8 bits
+	float v = max_rgb/255.0f;
+	float s = ((float)(max_rgb-min_rgb))/max_rgb;
+	float h = 0.0;
+
+	uint8_t delta = max_rgb - min_rgb;
+
+	if(delta != 0)
+		switch (which_max)
+		{
+			case 1:
+				// max is Red
+				h = 60*(0+ ((float)(g-b))/delta);
+				break;
+
+			case 2:
+				//max is Green
+				h = 60*(2+ ((float)(b-r))/delta);
+				break;
+
+			case 3:
+				//max is Blue
+				h = 60*(4+ ((float)(r-g))/delta);
+				break;
+
+			default:
+				h = 0.0;
+				break;
+		}
+	else
+		h = 0;
+	while(h < 0)
+		h += 360.0f;
+	while(h > 360.0f)
+		h -= 360.0f;
+	hsv.h = h;
+	hsv.s = s;
+	hsv.v = v;
+	return hsv;
+}
+
+LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
+{
+	LED_RGBTypeDef rgb;
+	float c = v*s;
+	h /= 60;
+	float h_mod_2 = h;
+	while (h_mod_2 > 2)
+		h_mod_2 -= 2;
+	h_mod_2 -= 1;
+	if(h_mod_2 < 0)
+		h_mod_2 *= -1.0f;
+	float x = c*(1-h_mod_2);
+
+	float r,g,b;
+	if(h >= 0 && h < 1)
+	{
+		r = c;	g = x;	b = 0;
+	}
+	else if(h >= 1 && h < 2)
+	{
+		r = x;	g = c;	b = 0;
+	}
+	else if(h >= 2 && h < 3)
+	{
+		r = 0;	g = c;	b = x;
+	}
+	else if(h >= 3 && h < 4)
+	{
+		r = 0;	g = c;	b = x;
+	}
+	else if(h >= 4 && h < 5)
+	{
+		r = x;	g = 0;	b = c;
+	}
+	else if(h >= 5 && h < 6)
+	{
+		r = c;	g = 0;	b = x;
+	}
+	float m = v - c;
+	rgb.r = (uint16_t)((r + m)*4095);
+	rgb.g = (uint16_t)((g + m)*4095);
+	rgb.b = (uint16_t)((b + m)*4095);
+
+	return rgb;
+}
+
+void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
+{
+	LED_config.Greyscale_LED_Count = greyscale_count;
+	LED_config.RGB_LED_Count = rgb_count;
+
+	// loop through all RGB LEDs and assign their first pin
+	for (uint8_t i = 0; i < rgb_count; ++i)
+		LED_config.LED_Pins[i] = i*3;
+
+	// loop through all Greyscale LEDs and assign their pin
+	// first Greyscale ID will start after the last RGB LED and end after `greyscale_count` increments
+	for (uint8_t i = rgb_count; i < rgb_count+greyscale_count; ++i)
+		LED_config.LED_Pins[i] = rgb_count*3 + i;
+
+	for (uint8_t i = rgb_count+greyscale_count; i <= 15; ++i)
+		LED_config.LED_Pins[i] = -1;
+}
+
+LED_RGBTypeDef Get_LED_RGB(uint8_t id)
+{
+	// read Hues, Saturations and Intensity values, convert them to 12 byte RGB values for export
+	LED_RGBTypeDef out;
+	out.r =out.g = out.b = 0xffff;
+
+	if(id >= LED_config.RGB_LED_Count)
+		return out;
+
+	// Convert HSV to RGB
+	// TODO work in progress..
+	return out;
+}
+
+void Set_LED_Intensity(uint8_t id, uint16_t intensity)
+{
+	LED_Intensity[id] = intensity;
+	if(LED_config.LED_Pins[id] == -1)
+		return;
+	if(id >= LED_config.RGB_LED_Count)
+	{
+		// greyscale LED
+		PCA9685_PWM_write(&hpca, LED_config.LED_Pins[id], intensity);
+		return;
+	}
+	// RGB LED
+	// TODO work in progress...
+//	uint8_t r_pin =
+//	PCA9685_PWM_write(hpca, pin, val)
+}
+
+void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b)
+{
+	// Convert and set to HSV values
+	// Write to pins
+	// TODO: work in progress
+}
+
+void ESP_SPI_Handle_Message(void)
+{
+	// determine message code
+	uint8_t header = SPI_data_in & 0b11100000;
+	switch (header) {
+		case 0b00000000:
+		{
+			// LED on/off message
+			uint8_t LED_id = SPI_data_in & 0b00001111;
+			uint8_t state = (SPI_data_in & 0b00010000) >> 4;
+			PCA9685_digital_write(&hpca, LED_id, state);
+			break;
+		}
+		case 0b00100000:
+		{
+			// LED intensity message
+			// read 2 more bytes
+			uint8_t data[2];
+			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 2, 200);
+			if(SPI_status != HAL_OK)
+				return;
+			uint8_t LED_id = SPI_data_in & 0b00001111;
+			uint16_t PWM_val = (data[0] << 4) | (data[1] >> 4);
+			PCA9685_PWM_write(&hpca, LED_id, PWM_val);
+			break;
+		}
+		case 0b01000000:
+		{
+			// LED Color message
+			// read 3 more bytes
+			uint8_t data[3];
+			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 3, 200);
+			uint8_t LED_id = SPI_data_in & 0b00000111;
+			uint8_t r = data[0];
+			uint8_t g = data[1];
+			uint8_t b = data[2];
+
+			RGB_from_ESP.r = r;
+			RGB_from_ESP.g = g;
+			RGB_from_ESP.b = b;
+
+			HSV_from_RGB_from_ESP = RGB_8bit_to_HSV(r, g, b);
+			RGB_from_HSV_from_RGB_from_ESP = HSV_to_RGB_12bit(
+					HSV_from_RGB_from_ESP.h, HSV_from_RGB_from_ESP.s, HSV_from_RGB_from_ESP.v);
+
+			// TODO: work in progress...
+			break;
+		}
+		case 0b01100000:
+		{
+			// LED configuration message
+			// read 1 more byte
+			uint8_t data;
+			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, &data, 1, 200);
+			if(SPI_status != HAL_OK)
+				return;
+			uint8_t RGB_count = (data & 0b11100000)>>5;
+			uint8_t Greyscale_count = (data & 0b00011111);
+			Set_LED_Config(RGB_count, Greyscale_count);
+			break;
+		}
+		default:
+			break;
+	}
+	// indicate received message
+	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+}
 
 /* USER CODE END 0 */
 
@@ -155,13 +406,18 @@ int main(void)
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
 
-
 	// SPI
 	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
-	if(SPI_data_in == 0b0001111)
-	    pca_status = PCA9685_LEDX_on(&hpca, 15);
-	else if(SPI_data_in == 0b11110000)
-	    pca_status = PCA9685_LEDX_off(&hpca, 15);
+//	if(SPI_data_in == 0b0001111)
+//	    pca_status = PCA9685_LEDX_on(&hpca, 15);
+//	else if(SPI_data_in == 0b11110000)
+//	    pca_status = PCA9685_LEDX_off(&hpca, 15);
+
+//	pca_status = PCA9685_LED0_on(&hpca);
+//	HAL_Delay(500);
+//	pca_status = PCA9685_LED0_off(&hpca);
+//	HAL_Delay(500);
+
 //	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi3, &SPI_data_out, 1, 1000);
 //	if(status == HAL_OK)
 //	{

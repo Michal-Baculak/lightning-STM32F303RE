@@ -115,6 +115,7 @@ typedef struct
 } hPCA9685;
 
 uint8_t PCA9685_PWM_write(hPCA9685 *hpca, uint8_t pin, uint16_t val);
+uint8_t PCA9685_digital_write(hPCA9685 *hpca, uint8_t pin, uint8_t val);
 
 /**
   * @brief  Read an amount of data in blocking mode from a specific memory address

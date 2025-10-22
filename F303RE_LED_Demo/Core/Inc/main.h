@@ -31,12 +31,31 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdint.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef struct
+{
+	uint8_t RGB_LED_Count;
+	uint8_t Greyscale_LED_Count;
+	int8_t LED_Pins[16];
+} LED_ConfigTypeDef;
 
+typedef struct
+{
+	uint16_t r;
+	uint16_t g;
+	uint16_t b;
+} LED_RGBTypeDef;
+
+typedef struct
+{
+	float h;
+	float s;
+	float v;
+} LED_HSVTypeDef;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -53,6 +72,12 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void ESP_SPI_Message_Handler(void);
+void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count);
+void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b);
+LED_RGBTypeDef Get_LED_RGB(uint8_t id);
+LED_HSVTypeDef RGB_8bit_to_HSV(uint8_t r, uint8_t g, uint8_t b);
+LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v);
 
 /* USER CODE END EFP */
 
