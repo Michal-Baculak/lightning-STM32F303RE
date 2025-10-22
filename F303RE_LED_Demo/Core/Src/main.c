@@ -190,7 +190,7 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
 	}
 	else if(h >= 3 && h < 4)
 	{
-		r = 0;	g = c;	b = x;
+		r = 0;	g = x;	b = c;
 	}
 	else if(h >= 4 && h < 5)
 	{
@@ -199,6 +199,10 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
 	else if(h >= 5 && h < 6)
 	{
 		r = c;	g = 0;	b = x;
+	}
+	else
+	{
+		r = 0; g = 0; b = 0;
 	}
 	float m = v - c;
 	rgb.r = (uint16_t)((r + m)*4095);
@@ -235,8 +239,7 @@ LED_RGBTypeDef Get_LED_RGB(uint8_t id)
 	if(id >= LED_config.RGB_LED_Count)
 		return out;
 
-	// Convert HSV to RGB
-	// TODO work in progress..
+	out = HSV_to_RGB_12bit(LED_Hue[id], LED_Saturation[id], LED_Intensity[id]/4095.0);
 	return out;
 }
 
@@ -252,16 +255,23 @@ void Set_LED_Intensity(uint8_t id, uint16_t intensity)
 		return;
 	}
 	// RGB LED
-	// TODO work in progress...
-//	uint8_t r_pin =
-//	PCA9685_PWM_write(hpca, pin, val)
+	LED_RGBTypeDef rgb = Get_LED_RGB(id);
+	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], rgb.r, rgb.g, rgb.b);
 }
 
 void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b)
 {
+	if(id > 5)
+		return;
+
 	// Convert and set to HSV values
+	LED_HSVTypeDef hsv = RGB_8bit_to_HSV(r, g, b);
+	LED_Hue[id] = hsv.h;
+	LED_Saturation[id] = hsv.s;
+	LED_Intensity[id] = (uint16_t)(hsv.v*4095);
+
 	// Write to pins
-	// TODO: work in progress
+	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], ((uint16_t)r)*4, ((uint16_t)g)*4, ((uint16_t)b)*4);
 }
 
 void ESP_SPI_Handle_Message(void)
@@ -274,7 +284,7 @@ void ESP_SPI_Handle_Message(void)
 			// LED on/off message
 			uint8_t LED_id = SPI_data_in & 0b00001111;
 			uint8_t state = (SPI_data_in & 0b00010000) >> 4;
-			PCA9685_digital_write(&hpca, LED_id, state);
+			Set_LED_Intensity(LED_id, state? 4095:0);
 			break;
 		}
 		case 0b00100000:
@@ -287,7 +297,7 @@ void ESP_SPI_Handle_Message(void)
 				return;
 			uint8_t LED_id = SPI_data_in & 0b00001111;
 			uint16_t PWM_val = (data[0] << 4) | (data[1] >> 4);
-			PCA9685_PWM_write(&hpca, LED_id, PWM_val);
+			Set_LED_Intensity(LED_id, PWM_val);
 			break;
 		}
 		case 0b01000000:
@@ -301,15 +311,7 @@ void ESP_SPI_Handle_Message(void)
 			uint8_t g = data[1];
 			uint8_t b = data[2];
 
-			RGB_from_ESP.r = r;
-			RGB_from_ESP.g = g;
-			RGB_from_ESP.b = b;
-
-			HSV_from_RGB_from_ESP = RGB_8bit_to_HSV(r, g, b);
-			RGB_from_HSV_from_RGB_from_ESP = HSV_to_RGB_12bit(
-					HSV_from_RGB_from_ESP.h, HSV_from_RGB_from_ESP.s, HSV_from_RGB_from_ESP.v);
-
-			// TODO: work in progress...
+			Set_LED_Color(LED_id, r, g, b);
 			break;
 		}
 		case 0b01100000:
@@ -384,7 +386,7 @@ int main(void)
 //  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x02, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
 
   uint8_t pca_status = PCA9685_PWM_init(&hpca, &hi2c1, 0x40);
-
+  Set_LED_Config(1, 3);
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */

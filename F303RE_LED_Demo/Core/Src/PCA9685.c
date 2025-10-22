@@ -23,7 +23,6 @@ uint8_t PCA9685_PWM_init(hPCA9685 *hpca, I2C_HandleTypeDef *hi2c, uint8_t addr)
 	return 0x00;
 }
 
-
 uint8_t PCA9685_PWM_write(hPCA9685 *hpca, uint8_t pin, uint16_t val)
 {
 	if (pin > 15) return 0x01;               // only 0–15 valid
@@ -39,6 +38,25 @@ uint8_t PCA9685_PWM_write(hPCA9685 *hpca, uint8_t pin, uint16_t val)
 	pwm_data[3] = val >> 8;        // OFF_H
 	HAL_I2C_Mem_Write(hpca->hi2c, hpca->address, reg_base, I2C_MEMADD_SIZE_8BIT,
 					  pwm_data, 4, HAL_MAX_DELAY);
+	return 0;
+}
+
+uint8_t PCA9685_RGB_write(hPCA9685 *hpca, uint8_t pin_r, uint16_t r, uint16_t g, uint16_t b)
+{
+	if(r > 4095) r = 4095;
+	if(g > 4095) g = 4095;
+	if(b > 4095) b = 4095;
+
+	if(pin_r % 3 != 0)
+		return 0x01;
+
+	if(PCA9685_PWM_write(hpca, pin_r, r) != 0x00)
+		return 0x02;
+	if(PCA9685_PWM_write(hpca, pin_r+1, g) != 0x00)
+		return 0x02;
+	if(PCA9685_PWM_write(hpca, pin_r+2, b) != 0x00)
+		return 0x02;
+
 	return 0;
 }
 
