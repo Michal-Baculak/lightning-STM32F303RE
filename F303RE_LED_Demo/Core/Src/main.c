@@ -20,9 +20,8 @@
 #include "main.h"
 
 /* Private includes ----------------------------------------------------------*/
-#include "PCA9685.h"
 /* USER CODE BEGIN Includes */
-
+#include "PCA9685.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -93,12 +92,20 @@ LED_HSVTypeDef HSV_from_RGB_from_ESP;
 LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
 
 // HMI
-#define NUM_BUTTONS 1
+#define NUM_BUTTONS 3
 #define DEBOUNCE_SAMPLES 10
 //#define BTN_SAMPLE_PERIOD_MS 10
 
-GPIO_TypeDef* button_ports[NUM_BUTTONS] = {Button_1_GPIO_Port};
-uint16_t button_pins[NUM_BUTTONS] = {Button_1_Pin};
+GPIO_TypeDef* button_ports[NUM_BUTTONS] = {
+		Button_1_GPIO_Port,
+		Button_2_GPIO_Port,
+		Button_3_GPIO_Port
+};
+uint16_t button_pins[NUM_BUTTONS] = {
+		Button_1_Pin,
+		Button_2_Pin,
+		Button_3_Pin
+};
 
 // selected LED id - used in some button bindings
 uint8_t selected_LED_id = 0;
@@ -114,12 +121,14 @@ uint8_t selected_LED_id = 0;
 /// 8 - switch selected LED mode
 
 uint8_t button_action[NUM_BUTTONS] = {
-		2
+		3,
+		4,
+		5
 };
 
 /// arguments for button_action
 uint8_t button_action_ARG[NUM_BUTTONS] = {
-		0
+		0, 0, 0
 };
 
 GPIO_PinState btn_state[NUM_BUTTONS];  // stable state
@@ -844,6 +853,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Button_3_Pin Button_2_Pin */
+  GPIO_InitStruct.Pin = Button_3_Pin|Button_2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Button_1_Pin */
   GPIO_InitStruct.Pin = Button_1_Pin;

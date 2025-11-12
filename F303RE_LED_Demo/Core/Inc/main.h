@@ -90,6 +90,8 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v);
 #define USART_RX_GPIO_Port GPIOA
 #define LD2_Pin GPIO_PIN_5
 #define LD2_GPIO_Port GPIOA
+#define Button_3_Pin GPIO_PIN_10
+#define Button_3_GPIO_Port GPIOB
 #define Button_1_Pin GPIO_PIN_10
 #define Button_1_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
@@ -98,6 +100,8 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v);
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
+#define Button_2_Pin GPIO_PIN_4
+#define Button_2_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
