@@ -18,8 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "PCA9685.h"
+
 /* Private includes ----------------------------------------------------------*/
+#include "PCA9685.h"
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
@@ -90,6 +91,39 @@ uint16_t LED_Intensity[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 LED_RGBTypeDef RGB_from_ESP;
 LED_HSVTypeDef HSV_from_RGB_from_ESP;
 LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
+
+// HMI
+#define NUM_BUTTONS 1
+#define DEBOUNCE_SAMPLES 10
+//#define BTN_SAMPLE_PERIOD_MS 10
+
+GPIO_TypeDef* button_ports[NUM_BUTTONS] = {Button_1_GPIO_Port};
+uint16_t button_pins[NUM_BUTTONS] = {Button_1_Pin};
+
+// selected LED id - used in some button bindings
+uint8_t selected_LED_id = 0;
+
+/// button mode settings
+/// 1 - toggle all LEDs
+/// 2 - toggle LED {ARG}
+/// 3 - toggle selected LED
+/// 4 - select next LED
+/// 5 - select prev LED
+/// 6 - switch all LEDs mode
+/// 7 - switch LED {ARG} mode
+/// 8 - switch selected LED mode
+
+uint8_t button_action[NUM_BUTTONS] = {
+		2
+};
+
+/// arguments for button_action
+uint8_t button_action_ARG[NUM_BUTTONS] = {
+		0
+};
+
+GPIO_PinState btn_state[NUM_BUTTONS];  // stable state
+uint8_t btn_counter[NUM_BUTTONS]; // debounce counter
 
 LED_HSVTypeDef RGB_8bit_to_HSV(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -212,6 +246,50 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
 	return rgb;
 }
 
+void LED_Reset_All()
+{
+	for (uint8_t i = 0; i < 16; ++i)
+	{
+		LED_Intensity[i] = 0;
+		PCA9685_LEDX_off(&hpca, i);
+	}
+	for (uint8_t i = 0; i < 5; i++)
+	{
+		LED_Hue[i] = 0;
+		LED_Saturation[i] = 0;
+	}
+}
+
+void LED_Set_All()
+{
+	uint8_t led_count = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
+	for (uint8_t i = 0; i < led_count; ++i)
+		Set_LED_Intensity(i, 4095);
+}
+
+void LED_Toggle_All()
+{
+	// loop through all LEDs, if at least one is on, turn all off, if all are off, turn each on
+	int num_leds = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
+	for (int i = 0; i < num_leds; ++i)
+	{
+		if(LED_Intensity[i] > 0)
+		{
+			LED_Reset_All();
+			return;
+		}
+	}
+	LED_Set_All();
+}
+
+void LED_Toggle(uint8_t id)
+{
+	if(LED_Intensity[id] == 0)
+		Set_LED_Intensity(id, 4095);
+	else
+		Set_LED_Intensity(id, 0);
+}
+
 void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
 {
 	// input verification and adjustment
@@ -222,6 +300,9 @@ void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
 	if(3*rgb_count  + greyscale_count > 16)
 		greyscale_count = 16 - 3*rgb_count;
 
+	// changing config might make some LEDs unadressable - we want those to be off by default.
+	LED_Reset_All();
+
 	LED_config.Greyscale_LED_Count = greyscale_count;
 	LED_config.RGB_LED_Count = rgb_count;
 
@@ -231,9 +312,6 @@ void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
 
 	// loop through all Greyscale LEDs and assign their pin
 	// first Greyscale ID will start after the last RGB LED and end after `greyscale_count` increments
-//	for (uint8_t i = rgb_count; i < rgb_count+greyscale_count; ++i)
-//		LED_config.LED_Pins[i] = rgb_count*3 + i;
-
 	for (int i = 0; i < greyscale_count; ++i)
 		LED_config.LED_Pins[rgb_count+i] = rgb_count*3+i;
 
@@ -345,6 +423,80 @@ void ESP_SPI_Handle_Message(void)
 	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 }
 
+void HMI_Select_Next()
+{
+	if(++selected_LED_id >= LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count)
+		selected_LED_id = 0;
+}
+
+void HMI_Select_Prev()
+{
+	uint8_t led_count = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
+	if(selected_LED_id-- == 0)
+		selected_LED_id = led_count-1;
+}
+
+void On_Button_Pressed(uint8_t id)
+{
+	/// button mode settings
+	/// 1 - toggle all LEDs
+	/// 2 - toggle LED {ARG}
+	/// 3 - toggle selected LED
+	/// 4 - select next LED
+	/// 5 - select prev LED
+	/// 6 - switch all LEDs mode
+	/// 7 - switch LED {ARG} mode
+	/// 8 - switch selected LED mode
+	switch (button_action[id]) {
+		case 1:
+			LED_Toggle_All();
+			break;
+		case 2:
+			// toggle LED specified in button_action_ARG
+			LED_Toggle(button_action_ARG[id]);
+			break;
+		case 3:
+			LED_Toggle(selected_LED_id);
+			break;
+		case 4:
+			HMI_Select_Next();
+			break;
+		case 5:
+			HMI_Select_Prev();
+			break;
+		default:
+			LED_Toggle_All();
+			break;
+	}
+}
+
+void On_Button_Changed(uint8_t id, GPIO_PinState state)
+{
+	if(state == GPIO_PIN_RESET)
+		On_Button_Pressed(id);
+}
+
+void Handle_HMI()
+{
+	for(uint8_t i = 0; i < NUM_BUTTONS; i++)
+	{
+		// read inputs
+		GPIO_PinState btn_i = HAL_GPIO_ReadPin(button_ports[i], button_pins[i]);
+
+		// look for change
+		if(btn_i == btn_state[i])
+			btn_counter[i] == 0;
+		else if(++btn_counter[i] >= DEBOUNCE_SAMPLES)
+		{
+			btn_state[i] = btn_i;
+			btn_counter[i] = 0;
+
+			// button is pressed, perform action:
+			On_Button_Changed(i, btn_i);
+		}
+	}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -399,6 +551,7 @@ int main(void)
   uint8_t pca_status = PCA9685_PWM_init(&hpca, &hi2c1, 0x40);
   Set_LED_Config(1, 3);
   /* USER CODE END 2 */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -421,6 +574,7 @@ int main(void)
 
 	// SPI
 	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
+	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
 //	    pca_status = PCA9685_LEDX_on(&hpca, 15);
 //	else if(SPI_data_in == 0b11110000)
@@ -690,6 +844,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Button_1_Pin */
+  GPIO_InitStruct.Pin = Button_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(Button_1_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
