@@ -214,6 +214,14 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
 
 void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
 {
+	// input verification and adjustment
+	if(rgb_count > 5)
+		rgb_count = 5;
+	if(greyscale_count > 16)
+		greyscale_count = 16;
+	if(3*rgb_count  + greyscale_count > 16)
+		greyscale_count = 16 - 3*rgb_count;
+
 	LED_config.Greyscale_LED_Count = greyscale_count;
 	LED_config.RGB_LED_Count = rgb_count;
 
@@ -223,8 +231,11 @@ void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
 
 	// loop through all Greyscale LEDs and assign their pin
 	// first Greyscale ID will start after the last RGB LED and end after `greyscale_count` increments
-	for (uint8_t i = rgb_count; i < rgb_count+greyscale_count; ++i)
-		LED_config.LED_Pins[i] = rgb_count*3 + i;
+//	for (uint8_t i = rgb_count; i < rgb_count+greyscale_count; ++i)
+//		LED_config.LED_Pins[i] = rgb_count*3 + i;
+
+	for (int i = 0; i < greyscale_count; ++i)
+		LED_config.LED_Pins[rgb_count+i] = rgb_count*3+i;
 
 	for (uint8_t i = rgb_count+greyscale_count; i <= 15; ++i)
 		LED_config.LED_Pins[i] = -1;
