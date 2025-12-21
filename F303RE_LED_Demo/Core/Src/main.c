@@ -134,6 +134,8 @@ uint8_t button_action_ARG[NUM_BUTTONS] = {
 GPIO_PinState btn_state[NUM_BUTTONS];  // stable state
 uint8_t btn_counter[NUM_BUTTONS]; // debounce counter
 
+uint8_t start_sequence_flag = 0;
+
 LED_HSVTypeDef RGB_8bit_to_HSV(uint8_t r, uint8_t g, uint8_t b)
 {
 	LED_HSVTypeDef hsv;
@@ -423,6 +425,8 @@ void ESP_SPI_Handle_Message(void)
 			uint8_t RGB_count = (data & 0b11100000)>>5;
 			uint8_t Greyscale_count = (data & 0b00011111);
 			Set_LED_Config(RGB_count, Greyscale_count);
+			// perform start sequence by setting the flag
+			start_sequence_flag = 1;
 			break;
 		}
 		default:
@@ -506,6 +510,39 @@ void Handle_HMI()
 	}
 }
 
+void Start_Sequence()
+{
+	// flash all individual LED pins
+
+	// first flash all RGB pins individually
+	for (int i = 0; i < LED_config.RGB_LED_Count; ++i)
+	{
+		uint8_t rgb_pin_0 = LED_config.LED_Pins[i];
+		for (int rgb_pin = 0; rgb_pin < 3; ++rgb_pin)
+		{
+			PCA9685_LEDX_on(&hpca, rgb_pin);
+			HAL_Delay(300);
+			PCA9685_LEDX_off(&hpca, rgb_pin);
+		}
+	}
+
+	// then flash all greyscale LEDs
+	for (int i = 0; i < LED_config.Greyscale_LED_Count; i++)
+	{
+		uint8_t grey_pin = LED_config.LED_Pins[LED_config.RGB_LED_Count+i];
+		PCA9685_LEDX_on(&hpca, grey_pin);
+		HAL_Delay(300);
+		PCA9685_LEDX_off(&hpca, grey_pin);
+	}
+
+	// send SPI message to indicate finished start sequence
+	SPI_data_out = 0b1;
+	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, &SPI_data_out, 1, 1000);
+	if(status)
+		return;
+	return;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -583,6 +620,13 @@ int main(void)
 
 	// SPI
 	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
+
+	if(start_sequence_flag)
+	{
+		Start_Sequence();
+		start_sequence_flag = 0;
+	}
+
 	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
 //	    pca_status = PCA9685_LEDX_on(&hpca, 15);
