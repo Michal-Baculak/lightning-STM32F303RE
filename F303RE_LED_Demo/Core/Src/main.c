@@ -79,6 +79,9 @@ void I2C_Scan(I2C_HandleTypeDef *hi2c);
 uint8_t SPI_data_out;
 uint8_t SPI_data_in;
 uint8_t SPI_RX_buf[SPI2_BUFFER_SIZE];
+uint8_t SPI_RX_ptr = 0;
+uint8_t SPI_RX_msg_len = 0;
+uint8_t SPI_RX_msg_ready = 0;
 uint8_t I2C_TX_Buffer[];
 uint8_t I2C_PWM_chip_address = (0x40<<1);
 uint8_t data_in = 0;
@@ -541,33 +544,79 @@ void Start_Sequence()
 
 	// send SPI message to indicate finished start sequence
 	SPI_data_out = 0b1;
-	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, &SPI_data_out, 1, 1000);
+	HAL_StatusTypeDef status = HAL_SPI_Transmit_IT(&hspi2, &SPI_data_out, 1);
+//	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, &SPI_data_out, 1, 1000);
 	if(status)
 		return;
 	return;
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+//void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+//{
+//    if (GPIO_Pin == SPI2_NSS_Pin)
+//    {
+//    	if (HAL_GPIO_ReadPin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin) == GPIO_PIN_RESET) {
+//			// Prepare SPI/DMA to receive exactly from index 0
+//			HAL_SPI_DMAStop(&hspi2);
+//			HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
+//		}
+//		// RISING EDGE: Master finished the message
+//		else {
+//			HAL_SPI_DMAStop(&hspi2);
+//			// Calculate how many bytes were actually transferred
+//			uint16_t count = SPI2_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hspi2.hdmarx);
+////			if (count > 0) {
+//			ESP_SPI_Handle_Message(SPI_RX_buf, count);
+////			}
+//		}
+//    }
+//}
+
+uint8_t Get_Message_Length(uint8_t header)
 {
-    if (GPIO_Pin == SPI2_NSS_Pin)
-    {
-    	if (HAL_GPIO_ReadPin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin) == GPIO_PIN_RESET) {
-			// Prepare SPI/DMA to receive exactly from index 0
-			HAL_SPI_DMAStop(&hspi2);
-			HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
-		}
-		// RISING EDGE: Master finished the message
-		else {
-			HAL_SPI_DMAStop(&hspi2);
-			// Calculate how many bytes were actually transferred
-			uint16_t count = SPI2_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hspi2.hdmarx);
-//			if (count > 0) {
-			ESP_SPI_Handle_Message(SPI_RX_buf, count);
-//			}
-		}
-    }
+	switch (header)
+	{
+			case 0b00000000:
+			{
+				return 1;
+			}
+			case 0b00100000:
+			{
+				return 3;
+			}
+			case 0b01000000:
+			{
+				return 4;
+			}
+			case 0b01100000:
+			{
+				return 2;
+			}
+			default:
+				return 0;
+	}
 }
 
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi)
+{
+	// find out if this is the first byte of the message
+	// if it is, determine the length of incoming bytes
+	if(SPI_RX_ptr == 0)
+	{
+		uint8_t header = SPI_data_in & 0b11100000;
+		SPI_RX_msg_len = Get_Message_Length(header);
+	}
+	SPI_RX_buf[SPI_RX_ptr++] = SPI_data_in;
+	if(SPI_RX_ptr >= SPI_RX_msg_len)
+	{
+		// message is complete and ready to parse
+		// reset buffer pointer
+		SPI_RX_ptr = 0;
+		SPI_RX_msg_ready = 1;
+	}
+	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
+
+}
 /* USER CODE END 0 */
 
 /**
@@ -576,7 +625,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -606,7 +654,8 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
+//  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
+  HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
 //  I2C_Scan(&hi2c1);
 //
 //  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
@@ -653,6 +702,13 @@ int main(void)
 		Start_Sequence();
 		start_sequence_flag = 0;
 	}
+
+	if(SPI_RX_msg_ready)
+	{
+		ESP_SPI_Handle_Message(SPI_RX_buf, SPI_RX_msg_len);
+		SPI_RX_msg_ready = 0;
+	}
+
 	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
 //	    pca_status = PCA9685_LEDX_on(&hpca, 15);
