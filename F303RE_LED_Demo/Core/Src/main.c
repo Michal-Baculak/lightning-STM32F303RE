@@ -39,6 +39,8 @@
 
 #define LED0_ON_H 0x07
 #define LED0_OFF_H 0x09
+
+#define SPI2_BUFFER_SIZE 8
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,6 +53,8 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi2;
 SPI_HandleTypeDef hspi3;
+DMA_HandleTypeDef hdma_spi2_tx;
+DMA_HandleTypeDef hdma_spi2_rx;
 
 UART_HandleTypeDef huart2;
 
@@ -61,6 +65,7 @@ UART_HandleTypeDef huart2;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
@@ -73,6 +78,7 @@ void I2C_Scan(I2C_HandleTypeDef *hi2c);
 /* USER CODE BEGIN 0 */
 uint8_t SPI_data_out;
 uint8_t SPI_data_in;
+uint8_t SPI_RX_buf[SPI2_BUFFER_SIZE];
 uint8_t I2C_TX_Buffer[];
 uint8_t I2C_PWM_chip_address = (0x40<<1);
 uint8_t data_in = 0;
@@ -374,42 +380,41 @@ void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b)
 	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], ((uint16_t)r)*4, ((uint16_t)g)*4, ((uint16_t)b)*4);
 }
 
-void ESP_SPI_Handle_Message(void)
+void ESP_SPI_Handle_Message(uint8_t* data, uint16_t len)
 {
 	// determine message code
-	uint8_t header = SPI_data_in & 0b11100000;
+	uint8_t header = data[0] & 0b11100000;
 	switch (header) {
 		case 0b00000000:
 		{
 			// LED on/off message
-			uint8_t LED_id = SPI_data_in & 0b00001111;
-			uint8_t state = (SPI_data_in & 0b00010000) >> 4;
+			uint8_t LED_id = data[0] & 0b00001111;
+			uint8_t state = (data[0] & 0b00010000) >> 4;
 			Set_LED_Intensity(LED_id, state? 4095:0);
 			break;
 		}
 		case 0b00100000:
 		{
 			// LED intensity message
-			// read 2 more bytes
-			uint8_t data[2];
-			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 2, 200);
-			if(SPI_status != HAL_OK)
-				return;
-			uint8_t LED_id = SPI_data_in & 0b00001111;
-			uint16_t PWM_val = (data[0] << 4) | (data[1] >> 4);
+			// need 2 more bytes
+//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 2, 200);
+//			if(SPI_status != HAL_OK)
+//				return;
+			uint8_t LED_id = data[0] & 0b00001111;
+			uint16_t PWM_val = (data[1] << 4) | (data[2] >> 4);
 			Set_LED_Intensity(LED_id, PWM_val);
 			break;
 		}
 		case 0b01000000:
 		{
 			// LED Color message
-			// read 3 more bytes
-			uint8_t data[3];
-			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 3, 200);
-			uint8_t LED_id = SPI_data_in & 0b00000111;
-			uint8_t r = data[0];
-			uint8_t g = data[1];
-			uint8_t b = data[2];
+			// need 3 more bytes
+//			uint8_t data[3];
+//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 3, 200);
+			uint8_t LED_id = data[0] & 0b00000111;
+			uint8_t r = data[1];
+			uint8_t g = data[2];
+			uint8_t b = data[3];
 
 			Set_LED_Color(LED_id, r, g, b);
 			break;
@@ -417,13 +422,13 @@ void ESP_SPI_Handle_Message(void)
 		case 0b01100000:
 		{
 			// LED configuration message
-			// read 1 more byte
-			uint8_t data;
-			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, &data, 1, 200);
-			if(SPI_status != HAL_OK)
-				return;
-			uint8_t RGB_count = (data & 0b11100000)>>5;
-			uint8_t Greyscale_count = (data & 0b00011111);
+			// need 1 more byte
+//			uint8_t data;
+//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, &data, 1, 200);
+//			if(SPI_status != HAL_OK)
+//				return;
+			uint8_t RGB_count = (data[1] & 0b11100000)>>5;
+			uint8_t Greyscale_count = (data[1] & 0b00011111);
 			Set_LED_Config(RGB_count, Greyscale_count);
 			// perform start sequence by setting the flag
 			start_sequence_flag = 1;
@@ -498,7 +503,7 @@ void Handle_HMI()
 
 		// look for change
 		if(btn_i == btn_state[i])
-			btn_counter[i] == 0;
+			btn_counter[i] = 0;
 		else if(++btn_counter[i] >= DEBOUNCE_SAMPLES)
 		{
 			btn_state[i] = btn_i;
@@ -525,7 +530,6 @@ void Start_Sequence()
 			PCA9685_LEDX_off(&hpca, rgb_pin);
 		}
 	}
-
 	// then flash all greyscale LEDs
 	for (int i = 0; i < LED_config.Greyscale_LED_Count; i++)
 	{
@@ -541,6 +545,27 @@ void Start_Sequence()
 	if(status)
 		return;
 	return;
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == SPI2_NSS_Pin)
+    {
+    	if (HAL_GPIO_ReadPin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin) == GPIO_PIN_RESET) {
+			// Prepare SPI/DMA to receive exactly from index 0
+			HAL_SPI_DMAStop(&hspi2);
+			HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
+		}
+		// RISING EDGE: Master finished the message
+		else {
+			HAL_SPI_DMAStop(&hspi2);
+			// Calculate how many bytes were actually transferred
+			uint16_t count = SPI2_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hspi2.hdmarx);
+//			if (count > 0) {
+			ESP_SPI_Handle_Message(SPI_RX_buf, count);
+//			}
+		}
+    }
 }
 
 /* USER CODE END 0 */
@@ -574,12 +599,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI2_Init();
   MX_SPI3_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
 //  I2C_Scan(&hi2c1);
 //
 //  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
@@ -619,14 +646,13 @@ int main(void)
 //	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
 
 	// SPI
-	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
+//	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
 
 	if(start_sequence_flag)
 	{
 		Start_Sequence();
 		start_sequence_flag = 0;
 	}
-
 	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
 //	    pca_status = PCA9685_LEDX_on(&hpca, 15);
@@ -865,6 +891,25 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -898,6 +943,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : SPI2_NSS_Pin */
+  GPIO_InitStruct.Pin = SPI2_NSS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(SPI2_NSS_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : Button_3_Pin Button_2_Pin */
   GPIO_InitStruct.Pin = Button_3_Pin|Button_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -909,6 +960,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(Button_1_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
