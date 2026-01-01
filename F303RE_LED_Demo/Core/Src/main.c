@@ -632,11 +632,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 	}
 //	HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
 //	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
-	if (hspi->State != HAL_SPI_STATE_READY)
-	{
-	    // breakpoint here
-		int a = 1;
-	}
+//	if (hspi->State != HAL_SPI_STATE_READY)
+//	{
+//	    // breakpoint here
+//		int a = 1;
+//	}
 	SPI_status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
 	if(SPI_status);
 	return;
