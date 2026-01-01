@@ -86,7 +86,10 @@ uint8_t I2C_TX_Buffer[];
 uint8_t I2C_PWM_chip_address = (0x40<<1);
 uint8_t data_in = 0;
 
+uint16_t SPI_msg_count = 0;
+
 HAL_StatusTypeDef i2c_status;
+HAL_StatusTypeDef SPI_status;
 
 hPCA9685 hpca;
 LED_ConfigTypeDef LED_config;
@@ -543,11 +546,11 @@ void Start_Sequence()
 	}
 
 	// send SPI message to indicate finished start sequence
-	SPI_data_out = 0b1;
-	HAL_StatusTypeDef status = HAL_SPI_Transmit_IT(&hspi2, &SPI_data_out, 1);
+	SPI_data_out = 0x01;
+//	HAL_StatusTypeDef status = HAL_SPI_Transmit_IT(&hspi2, &SPI_data_out, 1);
 //	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, &SPI_data_out, 1, 1000);
-	if(status)
-		return;
+//	if(status)
+//		return;
 	return;
 }
 
@@ -597,8 +600,21 @@ uint8_t Get_Message_Length(uint8_t header)
 	}
 }
 
-void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi)
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi)
 {
+	// here we are
+	uint32_t errorCode = hspi->ErrorCode;
+
+	//TODO: RX_Buf(ptr) reset
+
+	SPI_status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
+	if(SPI_status);
+	return;
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
+{
+	SPI_msg_count++;
 	// find out if this is the first byte of the message
 	// if it is, determine the length of incoming bytes
 	if(SPI_RX_ptr == 0)
@@ -614,8 +630,16 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi)
 		SPI_RX_ptr = 0;
 		SPI_RX_msg_ready = 1;
 	}
-	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
-
+//	HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
+//	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
+	if (hspi->State != HAL_SPI_STATE_READY)
+	{
+	    // breakpoint here
+		int a = 1;
+	}
+	SPI_status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
+	if(SPI_status);
+	return;
 }
 /* USER CODE END 0 */
 
@@ -625,6 +649,7 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -655,7 +680,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 //  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
-  HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
+//  HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
+  SPI_data_out = 0x00;
+  HAL_SPI_TransmitReceive_IT(&hspi2, &SPI_data_out, &SPI_data_in, 1);
+//  HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
 //  I2C_Scan(&hi2c1);
 //
 //  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
