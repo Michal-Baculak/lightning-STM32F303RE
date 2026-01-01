@@ -531,9 +531,9 @@ void Start_Sequence()
 		uint8_t rgb_pin_0 = LED_config.LED_Pins[i];
 		for (int rgb_pin = 0; rgb_pin < 3; ++rgb_pin)
 		{
-			PCA9685_LEDX_on(&hpca, rgb_pin);
+			PCA9685_LEDX_on(&hpca, rgb_pin_0 + rgb_pin);
 			HAL_Delay(300);
-			PCA9685_LEDX_off(&hpca, rgb_pin);
+			PCA9685_LEDX_off(&hpca, rgb_pin_0 + rgb_pin);
 		}
 	}
 	// then flash all greyscale LEDs
@@ -615,6 +615,12 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi)
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 {
 	SPI_msg_count++;
+	if(SPI_RX_msg_ready)
+	{
+		// we have a problem - we received new message before we could process the previous one
+		SPI_data_out = 0xee;
+	}
+//	SPI_data_out = SPI_msg_count;
 	// find out if this is the first byte of the message
 	// if it is, determine the length of incoming bytes
 	if(SPI_RX_ptr == 0)
@@ -632,11 +638,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 	}
 //	HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
 //	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
-//	if (hspi->State != HAL_SPI_STATE_READY)
-//	{
-//	    // breakpoint here
-//		int a = 1;
-//	}
+	if (hspi->State != HAL_SPI_STATE_READY)
+	{
+	    // breakpoint here
+		SPI_data_out = 0xee;
+	}
 	SPI_status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
 	if(SPI_status);
 	return;
@@ -882,7 +888,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.NSS = SPI_NSS_HARD_INPUT;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
