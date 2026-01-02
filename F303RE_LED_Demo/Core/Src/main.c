@@ -85,13 +85,9 @@ uint8_t SPI_RX_buf[SPI2_BUFFER_SIZE];
 uint8_t SPI_RX_ptr = 0;
 uint8_t SPI_RX_msg_len = 0;
 uint8_t SPI_RX_msg_ready = 0;
-uint8_t I2C_TX_Buffer[];
-uint8_t I2C_PWM_chip_address = (0x40<<1);
-uint8_t data_in = 0;
 
 uint16_t SPI_msg_count = 0;
 
-HAL_StatusTypeDef i2c_status;
 HAL_StatusTypeDef SPI_status;
 
 hPCA9685 hpca;
@@ -109,7 +105,6 @@ LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
 // HMI
 #define NUM_BUTTONS 3
 #define DEBOUNCE_SAMPLES 10
-//#define BTN_SAMPLE_PERIOD_MS 10
 #define DIM_DELTA 40
 
 GPIO_TypeDef* button_ports[NUM_BUTTONS] = {
@@ -282,6 +277,37 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v)
 	return rgb;
 }
 
+void Set_LED_Intensity(uint8_t id, uint16_t intensity)
+{
+	LED_Intensity[id] = intensity;
+	if(LED_config.LED_Pins[id] == -1)
+		return;
+	if(id >= LED_config.RGB_LED_Count)
+	{
+		// greyscale LED
+		PCA9685_PWM_write(&hpca, LED_config.LED_Pins[id], intensity);
+		return;
+	}
+	// RGB LED
+	LED_RGBTypeDef rgb = Get_LED_RGB(id);
+	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], rgb.r, rgb.g, rgb.b);
+}
+
+void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b)
+{
+	if(id > 5)
+		return;
+
+	// Convert and set to HSV values
+	LED_HSVTypeDef hsv = RGB_8bit_to_HSV(r, g, b);
+	LED_Hue[id] = hsv.h;
+	LED_Saturation[id] = hsv.s;
+	LED_Intensity[id] = (uint16_t)(hsv.v*4095);
+
+	// Write to pins
+	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], ((uint16_t)r)*4, ((uint16_t)g)*4, ((uint16_t)b)*4);
+}
+
 void LED_Reset_All()
 {
 	for (uint8_t i = 0; i < 16; ++i)
@@ -326,13 +352,6 @@ void LED_Toggle(uint8_t id)
 		Set_LED_Intensity(id, 0);
 }
 
-void LED_Dim_All(int16_t delta)
-{
-	uint8_t led_cnt = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
-	for (uint8_t i = 0; i < led_cnt; ++i)
-		LED_Dim(i, delta);
-}
-
 void LED_Dim(uint8_t id, int16_t delta)
 {
 	int16_t new_intensity = (int16_t)LED_Intensity[id] + delta;
@@ -341,6 +360,13 @@ void LED_Dim(uint8_t id, int16_t delta)
 	if(new_intensity < 0)
 		new_intensity = 0;
 	Set_LED_Intensity(id, (uint16_t)new_intensity);
+}
+
+void LED_Dim_All(int16_t delta)
+{
+	uint8_t led_cnt = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
+	for (uint8_t i = 0; i < led_cnt; ++i)
+		LED_Dim(i, delta);
 }
 
 void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
@@ -385,36 +411,7 @@ LED_RGBTypeDef Get_LED_RGB(uint8_t id)
 	return out;
 }
 
-void Set_LED_Intensity(uint8_t id, uint16_t intensity)
-{
-	LED_Intensity[id] = intensity;
-	if(LED_config.LED_Pins[id] == -1)
-		return;
-	if(id >= LED_config.RGB_LED_Count)
-	{
-		// greyscale LED
-		PCA9685_PWM_write(&hpca, LED_config.LED_Pins[id], intensity);
-		return;
-	}
-	// RGB LED
-	LED_RGBTypeDef rgb = Get_LED_RGB(id);
-	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], rgb.r, rgb.g, rgb.b);
-}
 
-void Set_LED_Color(uint8_t id, uint8_t r, uint8_t g, uint8_t b)
-{
-	if(id > 5)
-		return;
-
-	// Convert and set to HSV values
-	LED_HSVTypeDef hsv = RGB_8bit_to_HSV(r, g, b);
-	LED_Hue[id] = hsv.h;
-	LED_Saturation[id] = hsv.s;
-	LED_Intensity[id] = (uint16_t)(hsv.v*4095);
-
-	// Write to pins
-	PCA9685_RGB_write(&hpca, LED_config.LED_Pins[id], ((uint16_t)r)*4, ((uint16_t)g)*4, ((uint16_t)b)*4);
-}
 
 void ESP_SPI_Handle_Message(uint8_t* data, uint16_t len)
 {
@@ -433,9 +430,6 @@ void ESP_SPI_Handle_Message(uint8_t* data, uint16_t len)
 		{
 			// LED intensity message
 			// need 2 more bytes
-//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 2, 200);
-//			if(SPI_status != HAL_OK)
-//				return;
 			uint8_t LED_id = data[0] & 0b00001111;
 			uint16_t PWM_val = (data[1] << 4) | (data[2] >> 4);
 			Set_LED_Intensity(LED_id, PWM_val);
@@ -445,8 +439,6 @@ void ESP_SPI_Handle_Message(uint8_t* data, uint16_t len)
 		{
 			// LED Color message
 			// need 3 more bytes
-//			uint8_t data[3];
-//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, data, 3, 200);
 			uint8_t LED_id = data[0] & 0b00000111;
 			uint8_t r = data[1];
 			uint8_t g = data[2];
@@ -459,10 +451,6 @@ void ESP_SPI_Handle_Message(uint8_t* data, uint16_t len)
 		{
 			// LED configuration message
 			// need 1 more byte
-//			uint8_t data;
-//			HAL_StatusTypeDef SPI_status = HAL_SPI_Receive(&hspi2, &data, 1, 200);
-//			if(SPI_status != HAL_OK)
-//				return;
 			uint8_t RGB_count = (data[1] & 0b11100000)>>5;
 			uint8_t Greyscale_count = (data[1] & 0b00011111);
 			Set_LED_Config(RGB_count, Greyscale_count);
@@ -530,6 +518,31 @@ void On_Button_Changed(uint8_t id, GPIO_PinState state)
 		On_Button_Pressed(id);
 }
 
+// called after rotation of rotary encoder. If CW -> direction = 1, if CCW -> direction = 0
+void On_Rotary_Change(int16_t delta)
+{
+	if(delta == 0)
+		return;
+	/// Rotary encoder mode settings:
+	/// 1 - dim all LEDs
+	/// 2 - dim LED {ARG}
+	/// 3 - dim selected LED
+	switch(encoder_action)
+	{
+		case 1:
+			LED_Dim_All(delta*DIM_DELTA);
+			break;
+		case 2:
+			LED_Dim(encoder_action_arg, delta*DIM_DELTA);
+			break;
+		case 3:
+			LED_Dim(selected_LED_id, delta*DIM_DELTA);
+			break;
+		default:
+			break;
+	}
+}
+
 void Handle_HMI()
 {
 	// handle buttons
@@ -583,33 +596,8 @@ void Start_Sequence()
 
 	// send SPI message to indicate finished start sequence
 	SPI_data_out = 0x01;
-//	HAL_StatusTypeDef status = HAL_SPI_Transmit_IT(&hspi2, &SPI_data_out, 1);
-//	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi2, &SPI_data_out, 1, 1000);
-//	if(status)
-//		return;
 	return;
 }
-
-//void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-//{
-//    if (GPIO_Pin == SPI2_NSS_Pin)
-//    {
-//    	if (HAL_GPIO_ReadPin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin) == GPIO_PIN_RESET) {
-//			// Prepare SPI/DMA to receive exactly from index 0
-//			HAL_SPI_DMAStop(&hspi2);
-//			HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
-//		}
-//		// RISING EDGE: Master finished the message
-//		else {
-//			HAL_SPI_DMAStop(&hspi2);
-//			// Calculate how many bytes were actually transferred
-//			uint16_t count = SPI2_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hspi2.hdmarx);
-////			if (count > 0) {
-//			ESP_SPI_Handle_Message(SPI_RX_buf, count);
-////			}
-//		}
-//    }
-//}
 
 uint8_t Get_Message_Length(uint8_t header)
 {
@@ -656,7 +644,6 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 		// we have a problem - we received new message before we could process the previous one
 		SPI_data_out = 0xee;
 	}
-//	SPI_data_out = SPI_msg_count;
 	// find out if this is the first byte of the message
 	// if it is, determine the length of incoming bytes
 	if(SPI_RX_ptr == 0)
@@ -672,8 +659,6 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 		SPI_RX_ptr = 0;
 		SPI_RX_msg_ready = 1;
 	}
-//	HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
-//	HAL_SPI_Receive_IT(hspi, &SPI_data_in, 1);
 	if (hspi->State != HAL_SPI_STATE_READY)
 	{
 	    // breakpoint here
@@ -684,30 +669,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 	return;
 }
 
-// called after rotation of rotary encoder. If CW -> direction = 1, if CCW -> direction = 0
-void On_Rotary_Change(int16_t delta)
-{
-	if(delta == 0)
-		return;
-	/// Rotary encoder mode settings:
-	/// 1 - dim all LEDs
-	/// 2 - dim LED {ARG}
-	/// 3 - dim selected LED
-	switch(encoder_action)
-	{
-		case 1:
-			LED_Dim_All(delta*DIM_DELTA);
-			break;
-		case 2:
-			LED_Dim(encoder_action_arg, delta*DIM_DELTA);
-			break;
-		case 3:
-			LED_Dim(selected_LED_id, delta*DIM_DELTA);
-			break;
-		default:
-			break;
-	}
-}
+
 
 /* USER CODE END 0 */
 
@@ -748,26 +710,10 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
-//  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
-//  HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
   SPI_data_out = 0x00;
   HAL_SPI_TransmitReceive_IT(&hspi2, &SPI_data_out, &SPI_data_in, 1);
 
   HAL_StatusTypeDef status = HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
-//  HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
-//  I2C_Scan(&hi2c1);
-//
-//  uint8_t mode1 = 0x01;  // Normal mode, all-call enabled by default
-//  i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, PCA9685_MODE1, 1, &mode1, 1, HAL_MAX_DELAY);
-//  HAL_Delay(10);
-//
-//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x00, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
-//
-//  // read ALLCALLADR register
-//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x05, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
-//
-//  // read SUBADR1 register
-//  i2c_status = HAL_I2C_Mem_Read(&hi2c1, I2C_PWM_chip_address, 0x02, I2C_MEMADD_SIZE_8BIT, &data_in, 1, HAL_MAX_DELAY);
 
   uint8_t pca_status = PCA9685_PWM_init(&hpca, &hi2c1, 0x40);
   Set_LED_Config(1, 3);
@@ -780,22 +726,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//	GPIO_PinState pinState = HAL_GPIO_ReadPin(BLUE_BUTTON_GPIO_Port, BLUE_BUTTON_Pin);
-//	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, pinState);
-
-
-	// I2C turn LED0 ON
-//	pca_status = PCA9685_PWM_write(&hpca, 0, 2024);
-//	pca_status = PCA9685_LED0_on(&hpca);
-//    pca_status = PCA9685_LEDX_on(&hpca, 15);
-//	uint8_t data_on = 0x10;   // bit 4 = full ON
-//	uint8_t data_off = 0x00; //set bit 4 to 0;
-//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_on, 1, HAL_MAX_DELAY);
-//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_off, 1, HAL_MAX_DELAY);
-
-	// SPI
-//	HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
-
 	if(start_sequence_flag)
 	{
 		Start_Sequence();
@@ -809,29 +739,6 @@ int main(void)
 	}
 
 	Handle_HMI();
-//	if(SPI_data_in == 0b0001111)
-//	    pca_status = PCA9685_LEDX_on(&hpca, 15);
-//	else if(SPI_data_in == 0b11110000)
-//	    pca_status = PCA9685_LEDX_off(&hpca, 15);
-
-//	pca_status = PCA9685_LED0_on(&hpca);
-//	HAL_Delay(500);
-//	pca_status = PCA9685_LED0_off(&hpca);
-//	HAL_Delay(500);
-
-//	HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi3, &SPI_data_out, 1, 1000);
-//	if(status == HAL_OK)
-//	{
-//		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-//	}
-//	HAL_Delay(500);
-
-	// I2C turn LED0 OFF
-//	pca_status = PCA9685_PWM_write(&hpca, 0, 4095);
-//	pca_status = PCA9685_LED0_off(&hpca);
-//  pca_status = PCA9685_LEDX_off(&hpca, 15);
-//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_ON_H, 1, &data_off, 1, HAL_MAX_DELAY);
-//	i2c_status = HAL_I2C_Mem_Write(&hi2c1, I2C_PWM_chip_address, LED0_OFF_H, 1, &data_on, 1, HAL_MAX_DELAY);
   }
   /* USER CODE END 3 */
 }
@@ -1169,17 +1076,16 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void I2C_Scan(I2C_HandleTypeDef *hi2c)
-{
-    printf("Scanning I2C bus...\r\n");
-    for (uint8_t addr = 1; addr < 127; addr++)
-    {
-        if (HAL_I2C_IsDeviceReady(hi2c, addr << 1, 2, 10) == HAL_OK)
-        {
-            printf("  Found device at 0x%02X\r\n", addr);
-        }
-    }
-}
+//void I2C_Scan(I2C_HandleTypeDef *hi2c)
+//{
+//    for (uint8_t addr = 1; addr < 127; addr++)
+//    {
+//        if (HAL_I2C_IsDeviceReady(hi2c, addr << 1, 2, 10) == HAL_OK)
+//        {
+//            printf("  Found device at 0x%02X\r\n", addr);
+//        }
+//    }
+//}
 /* USER CODE END 4 */
 
 /**
