@@ -56,6 +56,8 @@ SPI_HandleTypeDef hspi3;
 DMA_HandleTypeDef hdma_spi2_tx;
 DMA_HandleTypeDef hdma_spi2_rx;
 
+TIM_HandleTypeDef htim1;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -70,6 +72,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void I2C_Scan(I2C_HandleTypeDef *hi2c);
 /* USER CODE END PFP */
@@ -107,6 +110,7 @@ LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
 #define NUM_BUTTONS 3
 #define DEBOUNCE_SAMPLES 10
 //#define BTN_SAMPLE_PERIOD_MS 10
+#define DIM_DELTA 10
 
 GPIO_TypeDef* button_ports[NUM_BUTTONS] = {
 		Button_1_GPIO_Port,
@@ -118,6 +122,7 @@ uint16_t button_pins[NUM_BUTTONS] = {
 		Button_2_Pin,
 		Button_3_Pin
 };
+
 
 // selected LED id - used in some button bindings
 uint8_t selected_LED_id = 0;
@@ -142,6 +147,15 @@ uint8_t button_action[NUM_BUTTONS] = {
 uint8_t button_action_ARG[NUM_BUTTONS] = {
 		0, 0, 0
 };
+
+/// Rotary encoder mode settings:
+/// 1 - dim all LEDs
+/// 2 - dim LED {ARG}
+/// 3 - dim selected LED
+uint8_t encoder_action = 3;
+uint8_t encoder_action_arg = 0;
+int16_t encoder_delta = 0;
+int16_t timer_count = 0;
 
 GPIO_PinState btn_state[NUM_BUTTONS];  // stable state
 uint8_t btn_counter[NUM_BUTTONS]; // debounce counter
@@ -311,6 +325,23 @@ void LED_Toggle(uint8_t id)
 		Set_LED_Intensity(id, 4095);
 	else
 		Set_LED_Intensity(id, 0);
+}
+
+void LED_Dim_All(int16_t delta)
+{
+	uint8_t led_cnt = LED_config.Greyscale_LED_Count + LED_config.RGB_LED_Count;
+	for (uint8_t i = 0; i < led_cnt; ++i)
+		LED_Dim(i, delta);
+}
+
+void LED_Dim(uint8_t id, int16_t delta)
+{
+	int16_t new_intensity = (int16_t)LED_Intensity[id] + delta;
+	if(new_intensity > 4095)
+		new_intensity = 4095;
+	if(new_intensity < 0)
+		new_intensity = 0;
+	Set_LED_Intensity(id, (uint16_t)new_intensity);
 }
 
 void Set_LED_Config(uint8_t rgb_count, uint8_t greyscale_count)
@@ -647,6 +678,42 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 	if(SPI_status);
 	return;
 }
+
+// called after rotation of rotary encoder. If CW -> direction = 1, if CCW -> direction = 0
+void On_Rotary_Change(int16_t delta)
+{
+	/// Rotary encoder mode settings:
+	/// 1 - dim all LEDs
+	/// 2 - dim LED {ARG}
+	/// 3 - dim selected LED
+	switch(encoder_action)
+	{
+		case 1:
+			LED_Dim_All(delta*DIM_DELTA);
+			break;
+		case 2:
+			LED_Dim(encoder_action_arg, delta*DIM_DELTA);
+			break;
+		case 3:
+			LED_Dim(selected_LED_id, delta*DIM_DELTA);
+			break;
+		default:
+			break;
+	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	// called by rotary encoder
+	if(GPIO_Pin == Encoder_A_Pin)
+	{
+		// if B has the same voltage level, encoder was rotate CCW, else CW
+		encoder_delta += (HAL_GPIO_ReadPin(Encoder_A_GPIO_Port, Encoder_A_Pin)
+						 != HAL_GPIO_ReadPin(Encoder_B_GPIO_Port, Encoder_B_Pin))?
+						 1:-1;
+	}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -683,12 +750,15 @@ int main(void)
   MX_SPI2_Init();
   MX_SPI3_Init();
   MX_I2C1_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
 //  HAL_SPI_Receive_DMA(&hspi2, SPI_RX_buf, SPI2_BUFFER_SIZE);
 //  HAL_SPI_TransmitReceive_IT(hspi, &SPI_data_out, &SPI_data_in, 1);
   SPI_data_out = 0x00;
   HAL_SPI_TransmitReceive_IT(&hspi2, &SPI_data_out, &SPI_data_in, 1);
+
+  HAL_StatusTypeDef status = HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 //  HAL_SPI_Receive_IT(&hspi2, &SPI_data_in, 1);
 //  I2C_Scan(&hi2c1);
 //
@@ -742,6 +812,13 @@ int main(void)
 		ESP_SPI_Handle_Message(SPI_RX_buf, SPI_RX_msg_len);
 		SPI_RX_msg_ready = 0;
 	}
+
+	if(encoder_delta != 0)
+	{
+		On_Rotary_Change(encoder_delta);
+	}
+
+	timer_count = __HAL_TIM_GET_COUNTER(&htim1);
 
 	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
@@ -809,9 +886,11 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_I2C1;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_I2C1
+                              |RCC_PERIPHCLK_TIM1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+  PeriphClkInit.Tim1ClockSelection = RCC_TIM1CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -946,6 +1025,57 @@ static void MX_SPI3_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI2;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 15;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 15;
+  if (HAL_TIM_Encoder_Init(&htim1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -1033,27 +1163,29 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : SPI2_NSS_Pin */
-  GPIO_InitStruct.Pin = SPI2_NSS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(SPI2_NSS_GPIO_Port, &GPIO_InitStruct);
-
   /*Configure GPIO pins : Button_3_Pin Button_2_Pin */
   GPIO_InitStruct.Pin = Button_3_Pin|Button_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Button_1_Pin */
-  GPIO_InitStruct.Pin = Button_1_Pin;
+  /*Configure GPIO pin : Encoder_SW_Pin */
+  GPIO_InitStruct.Pin = Encoder_SW_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(Button_1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(Encoder_SW_GPIO_Port, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  /*Configure GPIO pin : Encoder_A_Pin */
+  GPIO_InitStruct.Pin = Encoder_A_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(Encoder_A_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Encoder_B_Pin Button_1_Pin */
+  GPIO_InitStruct.Pin = Encoder_B_Pin|Button_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
