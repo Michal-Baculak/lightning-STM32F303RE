@@ -92,12 +92,6 @@ LED_RGBTypeDef HSV_to_RGB_12bit(float h, float s, float v);
 #define LD2_GPIO_Port GPIOA
 #define Button_3_Pin GPIO_PIN_10
 #define Button_3_GPIO_Port GPIOB
-#define Encoder_SW_Pin GPIO_PIN_9
-#define Encoder_SW_GPIO_Port GPIOC
-#define Encoder_A_Pin GPIO_PIN_8
-#define Encoder_A_GPIO_Port GPIOA
-#define Encoder_B_Pin GPIO_PIN_9
-#define Encoder_B_GPIO_Port GPIOA
 #define Button_1_Pin GPIO_PIN_10
 #define Button_1_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13

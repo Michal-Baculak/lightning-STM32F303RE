@@ -110,7 +110,7 @@ LED_RGBTypeDef RGB_from_HSV_from_RGB_from_ESP;
 #define NUM_BUTTONS 3
 #define DEBOUNCE_SAMPLES 10
 //#define BTN_SAMPLE_PERIOD_MS 10
-#define DIM_DELTA 10
+#define DIM_DELTA 40
 
 GPIO_TypeDef* button_ports[NUM_BUTTONS] = {
 		Button_1_GPIO_Port,
@@ -154,8 +154,7 @@ uint8_t button_action_ARG[NUM_BUTTONS] = {
 /// 3 - dim selected LED
 uint8_t encoder_action = 3;
 uint8_t encoder_action_arg = 0;
-int16_t encoder_delta = 0;
-int16_t timer_count = 0;
+int16_t encoder_count_last = 0;
 
 GPIO_PinState btn_state[NUM_BUTTONS];  // stable state
 uint8_t btn_counter[NUM_BUTTONS]; // debounce counter
@@ -533,6 +532,7 @@ void On_Button_Changed(uint8_t id, GPIO_PinState state)
 
 void Handle_HMI()
 {
+	// handle buttons
 	for(uint8_t i = 0; i < NUM_BUTTONS; i++)
 	{
 		// read inputs
@@ -550,6 +550,11 @@ void Handle_HMI()
 			On_Button_Changed(i, btn_i);
 		}
 	}
+
+	// handle IRC
+	int16_t encoder_count_new = __HAL_TIM_GET_COUNTER(&htim1);
+	On_Rotary_Change(encoder_count_new - encoder_count_last);
+	encoder_count_last = encoder_count_new;
 }
 
 void Start_Sequence()
@@ -682,6 +687,8 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi)
 // called after rotation of rotary encoder. If CW -> direction = 1, if CCW -> direction = 0
 void On_Rotary_Change(int16_t delta)
 {
+	if(delta == 0)
+		return;
 	/// Rotary encoder mode settings:
 	/// 1 - dim all LEDs
 	/// 2 - dim LED {ARG}
@@ -699,18 +706,6 @@ void On_Rotary_Change(int16_t delta)
 			break;
 		default:
 			break;
-	}
-}
-
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	// called by rotary encoder
-	if(GPIO_Pin == Encoder_A_Pin)
-	{
-		// if B has the same voltage level, encoder was rotate CCW, else CW
-		encoder_delta += (HAL_GPIO_ReadPin(Encoder_A_GPIO_Port, Encoder_A_Pin)
-						 != HAL_GPIO_ReadPin(Encoder_B_GPIO_Port, Encoder_B_Pin))?
-						 1:-1;
 	}
 }
 
@@ -812,13 +807,6 @@ int main(void)
 		ESP_SPI_Handle_Message(SPI_RX_buf, SPI_RX_msg_len);
 		SPI_RX_msg_ready = 0;
 	}
-
-	if(encoder_delta != 0)
-	{
-		On_Rotary_Change(encoder_delta);
-	}
-
-	timer_count = __HAL_TIM_GET_COUNTER(&htim1);
 
 	Handle_HMI();
 //	if(SPI_data_in == 0b0001111)
@@ -1169,23 +1157,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Encoder_SW_Pin */
-  GPIO_InitStruct.Pin = Encoder_SW_Pin;
+  /*Configure GPIO pin : Button_1_Pin */
+  GPIO_InitStruct.Pin = Button_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(Encoder_SW_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : Encoder_A_Pin */
-  GPIO_InitStruct.Pin = Encoder_A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(Encoder_A_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Encoder_B_Pin Button_1_Pin */
-  GPIO_InitStruct.Pin = Encoder_B_Pin|Button_1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(Button_1_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
